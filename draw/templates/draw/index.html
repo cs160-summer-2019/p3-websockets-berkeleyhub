@@ -27,10 +27,70 @@
 
     // getting the URL (you may want to use for Exercise 3)
     var url = window.location.href;
+    var largedisplay = true;
+    if (url.indexOf("large") > -1) {
+      largedisplay = true;
+    } else {
+      largedisplay = false;
+    }
+  
+    // initialize
+    var path = new paper.Path();
+    var color = paper.Color.random();
+    path.strokeColor = color;
+    var owner;
+    var message = {};
 
-    // var socket = new WebSocket(
-    //     'wss://<your url here>/ws/draw');
+    if (largedisplay) {
+      var socket = new WebSocket('wss://p3-websockets-berkeleyhub-minxuan19499.codeanyapp.com/ws/draw');
+      owner = true;
+      
 
-
+      // triggered when receiving a message from the server
+      socket.onmessage = function(receivedMessage) {
+        // do something when you receive a message
+        message = JSON.parse(receivedMessage["data"]);
+        var loc = message["point"];
+        var rgb = message["color"];
+        var receivedcolor = new paper.Color(rgb[1], rgb[2], rgb[3]);
+        // if another user starts drawing, switch tool settings
+        if (!color.equals(receivedcolor)) {
+          path = new paper.Path();
+          owner = false;
+          color = receivedcolor;
+          path.strokeColor = receivedcolor;
+        }
+        path.add(new paper.Point(loc[1], loc[2]));
+      };
+    } else {
+      var socket = new WebSocket('wss://p3-websockets-berkeleyhub-minxuan19499.codeanyapp.com/ws/draw');
+      owner = false;
+      
+      // on small display, send each point with color and owner
+      tool.onMouseMove = function(event) {
+        path.add(event.point);
+        message["point"] = event.point;
+        message["color"] = color;
+        socket.send(JSON.stringify(message));
+      }
+    }
+  
+    // Device detecter
+    window.addEventListener('deviceorientation', (event) =>
+    {
+        // Device rotation around Y-axis, in degrees
+        if (event.gamma > 40) {
+            color = paper.Color.random();
+            path.strokeColor = color;
+        } else if (Math.abs(event.alpha) > 70) {
+            var canvascontext = canvas.getContext('2d');
+            canvascontext.clearRect(0, 0, canvas.width, canvas.height);
+        }
+    });
+  
+    // notify console if socket closes unexpectedly
+    socket.onclose = function(e) {
+        console.error('Chat socket closed unexpectedly');
+    };
 </script>
 </html>
