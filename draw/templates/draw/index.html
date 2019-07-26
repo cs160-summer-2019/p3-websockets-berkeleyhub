@@ -1,5 +1,24 @@
 {% load static %}
 
+<!--
+
+TO DO in order of importance:
+either implement:
+successfully add small display screens to large display screens. I have this sort of working if i don't scale the container down
+if tiles are moved or added on the small display screen, must show up on large display screen as well
+or implement: a box that contains the player number and a row of values for each corresponding tile. Seems much easier
+
+resizable bug?
+change the player number? default is 1
+
+not sure what else.
+
+USE FOR VARIATION: http://p3-websockets-berkeleyhub-minxuan19499.codeanyapp.com:3000/draw/?size=smallvariation
+-->
+
+
+
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -9,88 +28,257 @@
     <link rel="stylesheet" type="text/css" href="{% static 'draw/vendor/bootstrap/css/bootstrap.min.css' %}">
     <script type="text/javascript" src="{% static 'draw/vendor/jquery/jquery-3.3.1.min.js' %}"></script>
     <script type="text/javascript" src="{% static 'draw/vendor/paper/paper-full.min.js' %}"></script>
+    <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
 
     <style type="text/css">
     </style>
+    <link rel="stylesheet" type="text/css" href="{% static '/css/main.css' %}" />
+    <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
 
 </head>
 <body>
     <!-- You may change the dimensions of this canvas -->
-    <canvas id="myCanvas" width="750px" height="750px"></canvas>
+    <!-- the gray container -->
+    <div id="container" class="shape-container" style="position:relative; text-align:center;">
+      <!-- top left -->
+      <div class="player-info" style="left:0px;">
+        Player 1
+      </div>
+      <!-- top right -->
+      <div class="notes" style="position:absolute; top:0px;right:0px;">
+        <p contenteditable>
+        notes...
+        </p>
+      </div>
+      <!-- initial score square -->
+      <div id="placeholder" class="square" style="text-align:center; position:relative">
+        <h3 id="tileheader" contenteditable>
+          Score
+        </h3>
+        <button id="save" class="btn btn-sm btn-dark" style="position:absolute; bottom:5px; left:30%; width:40%; height:20%">
+          Save
+        </button>
+        <button id="sub" class="btn btn-sm btn-dark" style="position:absolute; right:5px; width:25%; height:20%">
+          +
+        </button>
+        <button id="add" class="btn btn-sm btn-dark" style="position:absolute; left:5px; width:25%; height:20%">
+          -
+        </button>
+        <strong id="tilebody" contenteditable style="text-align:center">0</strong>
+        <button name="closetile"  type="button" style="position:absolute; top:0; height:20px; width20px;  
+                right:0; background-color:transparent; outline:none; border:none">
+                <strong> &times;</strong>
+        </button>
+      </div>
+      <button id="addbutton" class="btn btn-dark" style="width:50px; height:50px; position:absolute; bottom:10px; right:10px">
+        +
+      </button>
+      <!-- modal for adding tiles -->
+      <div id="addmenu" class="modal" role="dialog" style="position:absolute; top:25%; ">
+        <div class="modal-dialog">
+          <div class="modal-content" style="border:none">
+            <div class="modal-header secondary">
+              <h5 class="modal-title">Add New Tile</h5>
+              <button name="closebutton" type="button" class="close" data-dismiss="modal">
+                <span> &times;</span>
+              </button>
+            </div>
+            <div class="modal-body secondary">
+              <button id="score" type="button" class="btn btn-primary">Score</button>
+              <button id="stat" type="button" class="btn btn-primary">Stat</button>
+              <button id="turn" type="button" class="btn btn-primary">Turn</button>
+              <button id="dice"type="button" class="btn btn-primary">Dice</button>
+            </div>
+            <div class="modal-footer">
+              <button name = "closebutton" type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+   
 </body>
 <script>
 
-    // setting up the canvas and one paper tool
-    var canvas = document.getElementById('myCanvas');
-    paper.setup(canvas);
-    var tool = new paper.Tool();
-
+    // Initialize variables
+    var largeDisplay = false; // for sockets
+    var container = document.getElementById("container"); // gray container
+    var variation = false; // variation variable, include in link
+    var message={}; // message to be sent in socket
+    var date = new Date(); 
+    var timestamp = date.getTime(); // used for id
+    var users = [];
+    var socket;
+    
+  
     // getting the URL (you may want to use for Exercise 3)
     var url = window.location.href;
-    var largedisplay = true;
+  
+    // Detect large or small display
     if (url.indexOf("large") > -1) {
-      largedisplay = true;
-    } else {
-      largedisplay = false;
+      largeDisplay = true;
+      container.setAttribute("style", "transform:scale(0.5, 0.5)")
     }
   
-    // initialize
-    var path = new paper.Path();
-    var color = paper.Color.random();
-    path.strokeColor = color;
-    var owner;
-    var message = {};
-
-    if (largedisplay) {
-      var socket = new WebSocket('wss://p3-websockets-berkeleyhub-minxuan19499.codeanyapp.com/ws/draw');
-      owner = true;
-      
+    if (url.indexOf("variation") > -1) {
+      variation = true;
+    }
+    
+    // Large display
+    if (largeDisplay) {
+      $("#container").hide();
+      // create socket
+      socket = new WebSocket('wss://p3-websockets-berkeleyhub-minxuan19499.codeanyapp.com/ws/draw');
 
       // triggered when receiving a message from the server
       socket.onmessage = function(receivedMessage) {
         // do something when you receive a message
         message = JSON.parse(receivedMessage["data"]);
-        var loc = message["point"];
-        var rgb = message["color"];
-        var receivedcolor = new paper.Color(rgb[1], rgb[2], rgb[3]);
-        // if another user starts drawing, switch tool settings
-        if (!color.equals(receivedcolor)) {
-          path = new paper.Path();
-          owner = false;
-          color = receivedcolor;
-          path.strokeColor = receivedcolor;
+        var receivedtime = message["timestamp"];
+        console.log(receivedtime);
+        // if not large display
+        if (timestamp != receivedtime) {
+          if (!users.includes(receivedtime)) {
+            // add an extra screen to large display DOESN'T WORK ATM
+            var newplayer = document.createElement("div");
+            var text1 = document.createTextNode("Player: 1");
+            var text2 = document.createTextNode("Score: 0");
+            newplayer.setAttribute("id", receivedtime);
+            var newline = document.createElement("br");
+            newplayer.setAttribute("class", "player-display");
+            newplayer.setAttribute("style", "text-align:center");
+            //var containercopy = document.querySelector("#container").cloneNode(true);
+            newplayer.style.visibility = 'visible';
+            newplayer.appendChild(text1);
+            newplayer.appendChild(newline);
+            newplayer.appendChild(text2)
+            document.body.appendChild(newplayer);
+            console.log(newplayer);
+            users += receivedtime;
+          } else {
+            /*var header = message["title"];
+            var body = message["body"];
+            var newline = document.createElement("br");
+            console.log(receivedtime);*/
+            
+            //var currentdisplay = document.querySelector("#" + receivedtime);
+            //currentdisplay.appendChild(newline);
+            //var text1 = document.createTextNode(header + ":" + body);
+            //currentdisplay.appendChild(text1);
+          }
         }
-        path.add(new paper.Point(loc[1], loc[2]));
       };
-    } else {
-      var socket = new WebSocket('wss://p3-websockets-berkeleyhub-minxuan19499.codeanyapp.com/ws/draw');
-      owner = false;
+    } else { // small display
+      // send this display to large display
+      socket = new WebSocket('wss://p3-websockets-berkeleyhub-minxuan19499.codeanyapp.com/ws/draw');
+        message["timestamp"] = timestamp;
+        socket.addEventListener('open', function(e){
+        var jsonstring = JSON.stringify(message);
+        socket.send(jsonstring);
+      });
       
-      // on small display, send each point with color and owner
-      tool.onMouseMove = function(event) {
-        path.add(event.point);
-        message["point"] = event.point;
-        message["color"] = color;
-        socket.send(JSON.stringify(message));
-      }
-    }
-  
-    // Device detecter
-    window.addEventListener('deviceorientation', (event) =>
-    {
-        // Device rotation around Y-axis, in degrees
-        if (event.gamma > 40) {
-            color = paper.Color.random();
-            path.strokeColor = color;
-        } else if (Math.abs(event.alpha) > 70) {
-            var canvascontext = canvas.getContext('2d');
-            canvascontext.clearRect(0, 0, canvas.width, canvas.height);
-        }
+      // this is used to initialize all squares and make resizable + draggable
+      function initsquare() {
+      $(".square").resizable();
+      $(".square").draggable()
+      .click(function() {
+        $(this).draggable({disabled: true});
+      })
+      .mouseout(function() {
+        $(this).draggable({disabled: false});
+        message = {};
+        
+      });
+      
+      $("[name='closetile']").click( function() {
+        $(this).parent().remove();
     });
-  
+      $("#save").click( function() {
+      console.log($(this).parent);
+      var header = document.querySelector("#tileheader");
+      var body = document.querySelector("#tilebody");
+      
+      message["title"] = header;
+      message["body"] = body;
+      socket.send(JSON.stringify(message));
+    });
+    }
+    // initialize the initial score square
+    $(initsquare());
+    
+    // set click listeners to show add tile menu and close tile menu
+    $("#addbutton").click( function() {
+      $("#addmenu").show();
+    });
+    $("[name='closebutton']").click( function() {
+      $("#addmenu").hide();
+    });
+      
+    // if user makes a score tile
+    $("#score").click( function() {
+      var tile = document.querySelector("#placeholder").cloneNode(true);
+      container.appendChild(tile);
+      $("#addmenu").hide();
+      $(initsquare());
+    });
+    // if user makes a stat tile
+    $("#stat").click( function() {
+      var tile = document.querySelector("#placeholder").cloneNode(true);
+      var header = tile.querySelector("#tileheader");
+      var body = tile.querySelector("#tilebody");
+      header.innerText = "Stat";
+      body.innerText = 100;
+      tile.setAttribute("style", "background-color:green;")
+      if (variation) {
+        tile.setAttribute("style", "background-color:green; border-radius:50px;");
+      }
+      container.appendChild(tile);
+      
+      $("#addmenu").hide();
+      $(initsquare());
+    });
+    // if user makes a turn tile
+    $("#turn").click( function() {
+      var tile = document.querySelector("#placeholder").cloneNode(true);
+      var header = tile.querySelector("#tileheader");
+      var body = tile.querySelector("#tilebody");
+      header.innerText = "Turn";
+      body.innerText = "1";
+      tile.setAttribute("style", "background-color:yellow")
+      
+      if (variation) {
+        tile.setAttribute("style", "background-color:yellow; clip-path: polygon(30% 0%,70% 0%,100% 30%,100% 70%,70% 100%, \
+                          30% 100%,  0% 70%,  0% 30%);");
+      };
+      
+      container.appendChild(tile);
+      $("#addmenu").hide();
+      $(initsquare());
+    });
+    // if user makes a dice tile
+    $("#dice").click( function() {
+      var tile = document.querySelector("#placeholder").cloneNode(true);
+      var header = tile.querySelector("#tileheader");
+      header.innerText = "Dice";
+      tile.setAttribute("style", "background-color:purple;")
+      
+      if (variation) {
+        tile.setAttribute("style", "background-color:purple; clip-path: polygon(0% 20px,20px 0%,calc(100% - 20px) 0%,100% 20px, \
+                           100% calc(100% - 20px),calc(100% - 20px) 100%, 20px 100%, 0 calc(100% - 20px));")
+      }
+      
+      container.appendChild(tile);
+      $("#addmenu").hide();
+      $(initsquare());
+    });
+      
+    }
     // notify console if socket closes unexpectedly
     socket.onclose = function(e) {
         console.error('Chat socket closed unexpectedly');
     };
+  
+    
+  
 </script>
 </html>
